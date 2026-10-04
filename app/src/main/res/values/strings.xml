@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Map Schedule</string>
+    <string name="widget_name">Map Schedule</string>
+    <string name="widget_description">Quick shortcut showing your drawn character</string>
+</resources>
