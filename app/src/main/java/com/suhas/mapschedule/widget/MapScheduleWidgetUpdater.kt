@@ -24,11 +24,12 @@ object MapScheduleWidgetUpdater {
     fun updateWidget(
         context: Context,
         appWidgetManager: AppWidgetManager,
-        appWidgetId: Int
+        appWidgetId: Int,
+        optionsBundle: android.os.Bundle? = null
     ) {
         val views = RemoteViews(context.packageName, R.layout.widget_map_schedule)
 
-        val options = appWidgetManager.getAppWidgetOptions(appWidgetId)
+        val options = optionsBundle ?: appWidgetManager.getAppWidgetOptions(appWidgetId)
         val minWidthDp = options?.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH) ?: 0
         val maxWidthDp = options?.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH) ?: 0
         val minHeightDp = options?.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT) ?: 0

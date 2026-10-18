@@ -1,5 +1,6 @@
 package com.suhas.mapschedule.drawing
 
+import android.appwidget.AppWidgetManager
 import android.content.Intent
 import android.graphics.Rect
 import android.os.Build
@@ -76,10 +77,22 @@ class LiveDrawingActivity : ComponentActivity() {
         }
 
         setContent {
+            val isPortrait = resources.configuration.orientation != android.content.res.Configuration.ORIENTATION_LANDSCAPE
+            val targetWidthDp = if (isPortrait) {
+                if (widgetMinWidthDp.value > 0) widgetMinWidthDp.value else widgetMaxWidthDp.value
+            } else {
+                if (widgetMaxWidthDp.value > 0) widgetMaxWidthDp.value else widgetMinWidthDp.value
+            }
+            val targetHeightDp = if (isPortrait) {
+                if (widgetMinHeightDp.value > 0) widgetMinHeightDp.value else widgetMaxHeightDp.value
+            } else {
+                if (widgetMinHeightDp.value > 0) widgetMinHeightDp.value else widgetMaxHeightDp.value
+            }
+
             LiveDrawingScreen(
                 sourceBounds = currentSourceBounds.value,
-                widgetMinWidthDp = widgetMinWidthDp.value,
-                widgetMinHeightDp = widgetMinHeightDp.value,
+                targetWidthDp = targetWidthDp,
+                targetHeightDp = targetHeightDp,
                 fromWidgetTap = isFromWidget.value,
                 isMasterEnabled = isMasterOn.value,
                 mappings = currentMappings.value,
@@ -142,16 +155,43 @@ class LiveDrawingActivity : ComponentActivity() {
     private fun refreshStateFromIntent(intent: Intent?) {
         currentSourceBounds.value = intent?.sourceBounds
         isFromWidget.value = intent?.getBooleanExtra(EXTRA_FROM_WIDGET_TAP, false) ?: false
-        widgetMinWidthDp.value = intent?.getIntExtra(EXTRA_WIDGET_MIN_WIDTH_DP, 0) ?: 0
-        widgetMinHeightDp.value = intent?.getIntExtra(EXTRA_WIDGET_MIN_HEIGHT_DP, 0) ?: 0
-        widgetMaxWidthDp.value = intent?.getIntExtra(EXTRA_WIDGET_MAX_WIDTH_DP, 0) ?: 0
-        widgetMaxHeightDp.value = intent?.getIntExtra(EXTRA_WIDGET_MAX_HEIGHT_DP, 0) ?: 0
+
+        val appWidgetId = intent?.getIntExtra(
+            AppWidgetManager.EXTRA_APPWIDGET_ID,
+            AppWidgetManager.INVALID_APPWIDGET_ID
+        ) ?: AppWidgetManager.INVALID_APPWIDGET_ID
+
+        val sysOptions = if (appWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID) {
+            try {
+                AppWidgetManager.getInstance(applicationContext).getAppWidgetOptions(appWidgetId)
+            } catch (_: Exception) {
+                null
+            }
+        } else null
+
+        val minW = sysOptions?.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 0)?.takeIf { it > 0 }
+            ?: (intent?.getIntExtra(EXTRA_WIDGET_MIN_WIDTH_DP, 0) ?: 0)
+        val maxW = sysOptions?.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH, 0)?.takeIf { it > 0 }
+            ?: (intent?.getIntExtra(EXTRA_WIDGET_MAX_WIDTH_DP, 0) ?: 0)
+        val minH = sysOptions?.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 0)?.takeIf { it > 0 }
+            ?: (intent?.getIntExtra(EXTRA_WIDGET_MIN_HEIGHT_DP, 0) ?: 0)
+        val maxH = sysOptions?.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, 0)?.takeIf { it > 0 }
+            ?: (intent?.getIntExtra(EXTRA_WIDGET_MAX_HEIGHT_DP, 0) ?: 0)
+
+        widgetMinWidthDp.value = minW
+        widgetMaxWidthDp.value = maxW
+        widgetMinHeightDp.value = minH
+        widgetMaxHeightDp.value = maxH
         currentMappings.value = repository.refreshMappings()
         isMasterOn.value = repository.isMasterEnabled()
 
+        sysOptions?.keySet()?.forEach { key ->
+            android.util.Log.i("MapSchedule", "sysOptions key: $key = ${sysOptions.get(key)}")
+        }
+
         android.util.Log.i(
             "MapSchedule",
-            "LiveDrawingActivity: sourceBounds=${currentSourceBounds.value}, minW=${widgetMinWidthDp.value}, minH=${widgetMinHeightDp.value}"
+            "LiveDrawingActivity: sourceBounds=${currentSourceBounds.value}, minW=$minW, maxW=$maxW, minH=$minH, maxH=$maxH"
         )
     }
 
@@ -224,8 +264,8 @@ class LiveDrawingActivity : ComponentActivity() {
 @Composable
 fun LiveDrawingScreen(
     sourceBounds: Rect?,
-    widgetMinWidthDp: Int,
-    widgetMinHeightDp: Int,
+    targetWidthDp: Int,
+    targetHeightDp: Int,
     fromWidgetTap: Boolean,
     isMasterEnabled: Boolean,
     mappings: List<AppMapping>,
@@ -339,51 +379,30 @@ fun LiveDrawingScreen(
         ) {
             val screenWidthPx = constraints.maxWidth
             val screenHeightPx = constraints.maxHeight
-            val bounds = sourceBounds
+            val densityScale = density.density
 
-            val boxModifier = if (bounds != null && bounds.width() > 30 && bounds.height() > 30) {
-                val rawLeft = bounds.left.coerceIn(0, (screenWidthPx - 50).coerceAtLeast(0))
-                val rawTop = bounds.top.coerceIn(0, (screenHeightPx - 50).coerceAtLeast(0))
-                val rawRight = bounds.right
-                val rawBottom = bounds.bottom
+            val targetWidthPx = if (targetWidthDp > 0) with(density) { targetWidthDp.dp.roundToPx() } else 0
+            val targetHeightPx = if (targetHeightDp > 0) with(density) { targetHeightDp.dp.roundToPx() } else 0
 
-                // If launcher reported bounds extending to or beyond right screen edge, widget spans symmetric margins
-                val (leftPx, widthPx) = if (rawRight >= screenWidthPx) {
-                    val marginPx = rawLeft
-                    val spanWidth = (screenWidthPx - 2 * marginPx).coerceAtLeast(100)
-                    Pair(marginPx, spanWidth)
-                } else {
-                    Pair(rawLeft, (rawRight - rawLeft).coerceAtLeast(100))
-                }
+            val overlayBounds = WidgetOverlayBoundsCalculator.calculateBounds(
+                sourceBounds = sourceBounds,
+                targetWidthPx = targetWidthPx,
+                targetHeightPx = targetHeightPx,
+                screenWidthPx = screenWidthPx,
+                screenHeightPx = screenHeightPx,
+                densityScale = densityScale,
+                targetWidthDp = targetWidthDp,
+                targetHeightDp = targetHeightDp
+            )
 
-                val optHeightPx = if (widgetMinHeightDp > 0) with(density) { widgetMinHeightDp.dp.roundToPx() } else 0
-                val cellPaddingBottomPx = with(density) { 38.dp.roundToPx() }
-                val rawHeight = rawBottom - rawTop
+            val leftDp = with(density) { overlayBounds.leftPx.toDp() }
+            val topDp = with(density) { overlayBounds.topPx.toDp() }
+            val widthDp = with(density) { overlayBounds.widthPx.toDp() }
+            val heightDp = with(density) { overlayBounds.heightPx.toDp() }
 
-                val heightPx = if (optHeightPx > 0 && rawHeight > optHeightPx + 30) {
-                    maxOf(optHeightPx, rawHeight - cellPaddingBottomPx)
-                } else {
-                    rawHeight.coerceAtLeast(80)
-                }
-
-                val topPx = rawTop
-
-                val leftDp = with(density) { leftPx.toDp() }
-                val topDp = with(density) { topPx.toDp() }
-                val widthDp = with(density) { widthPx.toDp() }
-                val heightDp = with(density) { heightPx.toDp() }
-
-                Modifier
-                    .offset(x = leftDp, y = topDp)
-                    .size(width = widthDp, height = heightDp)
-            } else {
-                val fallbackHeight = if (widgetMinHeightDp > 0) widgetMinHeightDp.dp else 190.dp
-                Modifier
-                    .align(Alignment.Center)
-                    .padding(horizontal = 24.dp)
-                    .fillMaxWidth()
-                    .height(fallbackHeight)
-            }
+            val boxModifier = Modifier
+                .offset { IntOffset(overlayBounds.leftPx, overlayBounds.topPx) }
+                .size(width = widthDp, height = heightDp)
 
             Box(
                 modifier = boxModifier

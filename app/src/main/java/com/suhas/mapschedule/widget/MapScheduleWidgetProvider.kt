@@ -41,7 +41,7 @@ class MapScheduleWidgetProvider : AppWidgetProvider() {
     ) {
         super.onAppWidgetOptionsChanged(context, appWidgetManager, appWidgetId, newOptions)
         android.util.Log.i("MapSchedule", "Widget options changed for id=$appWidgetId")
-        MapScheduleWidgetUpdater.updateWidget(context, appWidgetManager, appWidgetId)
+        MapScheduleWidgetUpdater.updateWidget(context, appWidgetManager, appWidgetId, newOptions)
     }
 
     override fun onReceive(context: Context, intent: Intent) {
